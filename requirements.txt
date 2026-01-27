@@ -1,0 +1,7 @@
+Flask==2.3.3
+ccxt==4.1.63
+pandas==2.3.3
+pandas-ta-classic==0.3.59
+requests==2.31.0
+
+

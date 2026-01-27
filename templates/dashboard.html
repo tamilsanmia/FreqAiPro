@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Crypto Trading{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-arrow-up-circle-fill text-success"></i> Buy Signals</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Coin</th>
+                            <th>Price</th>
+                            <th>Strength</th>
+                            <th>Stop Loss</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for signal in buy_signals %}
+                        <tr>
+                            <td><i class="bi bi-currency-bitcoin"></i> {{ signal.coin }}</td>
+                            <td class="text-success">{{ signal.price }}</td>
+                            <td>{{ signal.strength }}</td>
+                            <td>{{ signal.st_level }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header sell">
+                <h5><i class="bi bi-arrow-down-circle-fill text-danger"></i> Sell Signals</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Coin</th>
+                            <th>Price</th>
+                            <th>Strength</th>
+                            <th>Stop Loss</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for signal in sell_signals %}
+                        <tr>
+                            <td><i class="bi bi-currency-bitcoin"></i> {{ signal.coin }}</td>
+                            <td class="text-danger">{{ signal.price }}</td>
+                            <td>{{ signal.strength }}</td>
+                            <td>{{ signal.st_level }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-bar-chart-line"></i> Open Positions ({{ open_positions | length }})</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Coin</th>
+                                <th>Entry</th>
+                                <th>SL</th>
+                                <th>TP1</th>
+                                <th>TP2</th>
+                                <th>TP3</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pos in open_positions %}
+                            <tr>
+                                <td>{{ pos.order_number }}</td>
+                                <td><i class="bi bi-currency-bitcoin"></i> {{ pos.coin }}</td>
+                                <td class="text-info">{{ "%.4f"|format(pos.entry_price) }}</td>
+                                <td class="text-danger">{{ "%.4f"|format(pos.sl) }}</td>
+                                <td class="text-success">{{ "%.4f"|format(pos.tp1) }}</td>
+                                <td class="text-success">{{ "%.4f"|format(pos.tp2) }}</td>
+                                <td class="text-success">{{ "%.4f"|format(pos.tp3) }}</td>
+                                <td>{{ pos.duration }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-clock-history"></i> Order History</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Coin</th>
+                                <th>Entry</th>
+                                <th>Exit</th>
+                                <th>Reason</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for order in order_history %}
+                            <tr>
+                                <td>{{ order.order_number }}</td>
+                                <td><i class="bi bi-currency-bitcoin"></i> {{ order.coin }}</td>
+                                <td>{{ "%.4f"|format(order.entry_price) }}</td>
+                                <td>{{ "%.4f"|format(order.exit_price) }}</td>
+                                <td class="{% if 'tp' in order.exit_reason %}text-success{% elif 'sl' in order.exit_reason %}text-danger{% else %}text-warning{% endif %}">{{ order.exit_reason }}</td>
+                                <td>{{ order.duration }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

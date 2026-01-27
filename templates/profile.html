@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Profile - Crypto Trading{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-person-circle"></i> User Profile</h5>
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-4">
+                    <div class="profile-icon mx-auto" style="width: 100px; height: 100px; font-size: 3rem;">
+                        {{ username[0].upper() }}
+                    </div>
+                </div>
+                <table class="table">
+                    <tr>
+                        <th>Username:</th>
+                        <td>{{ user[0] }}</td>
+                    </tr>
+                    <tr>
+                        <th>Member Since:</th>
+                        <td>{{ user[1] }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
