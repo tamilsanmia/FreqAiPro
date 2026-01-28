@@ -7,8 +7,9 @@ import logging
 import threading
 import os
 from functools import wraps
-from strategy import EXCHANGE_ID, TIMEFRAME, LIMIT, COIN_LIMIT, DB_FILE, init_db, fetch_top_volume_symbols, calculate_indicators, create_position, check_and_close_positions, close_positions_on_sell, get_open_positions, get_order_history
+from strategy import EXCHANGE_ID, TIMEFRAMES, LIMIT, COIN_LIMIT, DB_FILE, init_db, fetch_top_volume_symbols, calculate_indicators, create_position, check_and_close_positions, close_positions_on_sell, get_open_positions, get_order_history, download_market_data, get_cached_ohlcv, get_tradingview_url
 from telegram import send_telegram_message, test_telegram_connection
+from redis_client import redis_client, cache_signals, get_cached_signals, cache_scanned_coins, get_cached_scanned_coins, cache_positions, get_cached_positions
 
 logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -51,40 +52,46 @@ def run_strategy():
             symbols = fetch_top_volume_symbols(exchange, COIN_LIMIT)
             logger.info(f"Background: Fetched {len(symbols)} symbols")
             
-            conn = sqlite3.connect(DB_FILE)
+            conn = sqlite3.connect(DB_FILE, timeout=30)
             c = conn.cursor()
             for coin in symbols:
                 c.execute("INSERT INTO scanned_coins (coin) VALUES (?)", (coin,))
             conn.commit()
             
             for symbol in symbols:
-                try:
-                    ohlcv = exchange.fetch_ohlcv(symbol, TIMEFRAME, limit=LIMIT)
-                    df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-                    
-                    signal, strength, price, st_val = calculate_indicators(df)
-                    
-                    check_and_close_positions(symbol, price)
-                    
-                    if signal == "BUY":
-                        create_position(symbol, price)
-                        message = f"📈 *BUY Signal*\nCoin: {symbol}\nPrice: {price:.4f}\nStrength: {strength}\nStop Loss: {st_val:.4f}"
-                        send_telegram_message(message)
-                        logger.info(f"BUY signal for {symbol} at {price}")
-                    elif signal == "SELL":
-                        close_positions_on_sell(symbol, price)
-                        message = f"📉 *SELL Signal*\nCoin: {symbol}\nPrice: {price:.4f}\nStrength: {strength}\nStop Loss: {st_val:.4f}"
-                        send_telegram_message(message)
-                        logger.info(f"SELL signal for {symbol} at {price}")
-                    
-                    if signal:
-                        c.execute("INSERT INTO signals (coin, signal_type, price, strength, st_level) VALUES (?, ?, ?, ?, ?)",
-                                  (symbol, signal, price, strength, st_val))
-                    
-                    time.sleep(0.05) 
-                except Exception as e:
-                    logger.error(f"Error processing {symbol}: {e}")
-                    continue
+                for timeframe in TIMEFRAMES:
+                    try:
+                        # Try cached data first
+                        ohlcv = get_cached_ohlcv(symbol, timeframe)
+                        if ohlcv is None:
+                            # Fallback to live fetch if cache miss
+                            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=LIMIT)
+                        
+                        df = pd.DataFrame(ohlcv, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+                        
+                        signal, strength, price, st_val = calculate_indicators(df)
+                        
+                        check_and_close_positions(symbol, price, timeframe)
+                        
+                        if signal == "BUY":
+                            create_position(symbol, price, st_val, timeframe)
+                            message = f"📈 *BUY Signal ({timeframe})*\nCoin: {symbol}\nPrice: {price:.4f}\nStrength: {strength}\nStop Loss: {st_val:.4f}"
+                            send_telegram_message(message)
+                            logger.info(f"BUY signal for {symbol} at {price} on {timeframe}")
+                        elif signal == "SELL":
+                            close_positions_on_sell(symbol, price, timeframe)
+                            message = f"📉 *SELL Signal ({timeframe})*\nCoin: {symbol}\nPrice: {price:.4f}\nStrength: {strength}\nStop Loss: {st_val:.4f}"
+                            send_telegram_message(message)
+                            logger.info(f"SELL signal for {symbol} at {price} on {timeframe}")
+                        
+                        if signal:
+                            c.execute("INSERT INTO signals (coin, signal_type, price, strength, st_level, timeframe) VALUES (?, ?, ?, ?, ?, ?)",
+                                      (symbol, signal, price, strength, st_val, timeframe))
+                        
+                        time.sleep(0.05) 
+                    except Exception as e:
+                        logger.error(f"Error processing {symbol} on {timeframe}: {e}")
+                        continue
             
             conn.commit()
             conn.close()
@@ -114,7 +121,7 @@ def register():
             return render_template('register.html', error='Password must be at least 6 characters')
         
         try:
-            conn = sqlite3.connect('users.db')
+            conn = sqlite3.connect('users.db', timeout=30)
             c = conn.cursor()
             c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
             conn.commit()
@@ -133,7 +140,7 @@ def login():
         password = request.form.get('password')
         remember = request.form.get('remember')
         
-        conn = sqlite3.connect('users.db')
+        conn = sqlite3.connect('users.db', timeout=30)
         c = conn.cursor()
         c.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
         user = c.fetchone()
@@ -162,21 +169,51 @@ def logout():
 @login_required
 def index():
     logger.info(f"Index route accessed by {session.get('username')}")
-    exchange = getattr(ccxt, EXCHANGE_ID)()
     
-    # Get latest signals from DB
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT coin, signal_type, price, strength, st_level FROM signals ORDER BY timestamp DESC LIMIT 50")
-    signals = c.fetchall()
-    conn.close()
+    # Try to get cached signals first
+    buy_signals = get_cached_signals('buy')
+    sell_signals = get_cached_signals('sell')
     
-    buy_signals = [{"coin": s[0], "price": f"{s[2]:.4f}", "strength": s[3], "st_level": f"{s[4]:.4f}"} for s in signals if s[1] == "BUY"]
-    sell_signals = [{"coin": s[0], "price": f"{s[2]:.4f}", "strength": s[3], "st_level": f"{s[4]:.4f}"} for s in signals if s[1] == "SELL"]
+    if buy_signals is None or sell_signals is None:
+        # Get latest signals from DB
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        c = conn.cursor()
+        c.execute("SELECT coin, signal_type, price, strength, st_level, COALESCE(timeframe, 'N/A') FROM signals ORDER BY timestamp DESC LIMIT 50")
+        signals = c.fetchall()
+        conn.close()
+        
+        buy_signals = [{"coin": s[0], "price": f"{s[2]:.4f}", "strength": s[3], "st_level": f"{s[4]:.4f}", "timeframe": s[5], "tradingview_url": get_tradingview_url(s[0], s[5])} for s in signals if s[1] == "BUY"]
+        sell_signals = [{"coin": s[0], "price": f"{s[2]:.4f}", "strength": s[3], "st_level": f"{s[4]:.4f}", "timeframe": s[5], "tradingview_url": get_tradingview_url(s[0], s[5])} for s in signals if s[1] == "SELL"]
+        
+        # Cache the signals
+        cache_signals(buy_signals, 'buy')
+        cache_signals(sell_signals, 'sell')
     
-    symbols = fetch_top_volume_symbols(exchange, COIN_LIMIT)
-    open_positions = get_open_positions()
-    order_history = get_order_history()
+    # Try to get cached scanned coins
+    symbols = get_cached_scanned_coins()
+    if symbols is None:
+        exchange = getattr(ccxt, EXCHANGE_ID)()
+        symbols = fetch_top_volume_symbols(exchange, COIN_LIMIT)
+        cache_scanned_coins(symbols)
+    
+    # Try to get cached positions
+    open_positions = get_cached_positions('open')
+    if open_positions is None:
+        open_positions = get_open_positions()
+        cache_positions(open_positions, 'open')
+    
+    order_history = get_cached_positions('history')
+    if order_history is None:
+        order_history = get_order_history()
+        cache_positions(order_history, 'history')
+
+    # Ensure TradingView URLs are correct for cached data
+    for pos in open_positions:
+        timeframe = pos.get('timeframe', '1h')
+        pos['tradingview_url'] = get_tradingview_url(pos['coin'], timeframe)
+    for order in order_history:
+        timeframe = order.get('timeframe', '1h')
+        order['tradingview_url'] = get_tradingview_url(order['coin'], timeframe)
     
     return render_template('dashboard.html', 
                            buy_signals=buy_signals, 
@@ -188,7 +225,7 @@ def index():
 @app.route('/signals')
 @login_required
 def signals():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
     c.execute("SELECT coin, signal_type, price, strength, st_level, timestamp FROM signals ORDER BY timestamp DESC LIMIT 100")
     all_signals = c.fetchall()
@@ -203,13 +240,45 @@ def logs():
             log_lines = f.readlines()[-100:]  # Last 100 lines
     except:
         log_lines = []
-    return render_template('logs.html', logs=log_lines)
+    
+    # Check Redis status
+    redis_status = {
+        'connected': False,
+        'info': {}
+    }
+    if redis_client:
+        try:
+            redis_client.ping()
+            redis_status['connected'] = True
+            info = redis_client.info()
+            redis_status['info'] = {
+                'version': info.get('redis_version', 'N/A'),
+                'uptime_days': info.get('uptime_in_days', 0),
+                'connected_clients': info.get('connected_clients', 0),
+                'used_memory_human': info.get('used_memory_human', 'N/A'),
+                'total_keys': sum([redis_client.dbsize()]) if redis_client else 0
+            }
+        except Exception as e:
+            logger.error(f"Redis status check failed: {e}")
+    
+    return render_template('logs.html', logs=log_lines, redis_status=redis_status)
+
+@app.route('/logs/clear', methods=['POST'])
+@login_required
+def clear_logs():
+    try:
+        with open('app.log', 'w') as f:
+            f.write('')
+        logger.info(f"Logs cleared by user {session.get('username')}")
+    except Exception as e:
+        logger.error(f"Error clearing logs: {e}")
+    return redirect(url_for('logs'))
 
 @app.route('/profile')
 @login_required
 def profile():
     username = session.get('username')
-    conn = sqlite3.connect('users.db')
+    conn = sqlite3.connect('users.db', timeout=30)
     c = conn.cursor()
     c.execute("SELECT username, created_at FROM users WHERE username=?", (username,))
     user = c.fetchone()
@@ -223,7 +292,7 @@ def profile():
 @app.route('/signals_data')
 @login_required
 def signals_data():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
     c.execute("SELECT coin, signal_type, price, strength, st_level FROM signals ORDER BY timestamp DESC LIMIT 50")
     signals = c.fetchall()
@@ -233,6 +302,19 @@ def signals_data():
     sell_signals = [{"coin": s[0], "price": f"{s[2]:.4f}", "strength": s[3], "st_level": f"{s[4]:.4f}"} for s in signals if s[1] == "SELL"]
     
     return jsonify({"buy_signals": buy_signals, "sell_signals": sell_signals})
+
+@app.route('/download_data')
+@login_required
+def download_data():
+    """Download and cache market data for all symbols"""
+    try:
+        exchange = getattr(ccxt, EXCHANGE_ID)()
+        symbols = fetch_top_volume_symbols(exchange, COIN_LIMIT)
+        download_market_data(exchange, symbols, TIMEFRAMES)
+        return jsonify({"status": "success", "message": f"Downloaded data for {len(symbols)} symbols"})
+    except Exception as e:
+        logger.error(f"Error downloading market data: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

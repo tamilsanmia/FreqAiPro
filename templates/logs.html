@@ -3,14 +3,75 @@
 {% block title %}Logs - Crypto Trading{% endblock %}
 
 {% block content %}
+<form id="clearLogsForm" method="POST" action="{{ url_for('clear_logs') }}" style="display:none;"></form>
 <div class="row">
-    <div class="col-md-12">
+    <div class="col-md-8">
         <div class="card">
-            <div class="card-header">
-                <h5><i class="bi bi-file-earmark-text"></i> Application Logs</h5>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-file-earmark-text"></i> Application Logs</h5>
+                <div>
+                    <button class="btn btn-sm btn-primary" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                    <button class="btn btn-sm btn-danger" onclick="if(confirm('Are you sure you want to clear all logs?')) document.getElementById('clearLogsForm').submit()"><i class="bi bi-trash"></i> Clear</button>
+                </div>
             </div>
             <div class="card-body">
                 <pre style="background: #000; color: #0f0; padding: 20px; border-radius: 8px; max-height: 600px; overflow-y: auto;">{% for log in logs %}{{ log }}{% endfor %}</pre>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-hdd-network"></i> Redis Status</h5>
+            </div>
+            <div class="card-body">
+                {% if redis_status.connected %}
+                <div class="alert alert-success">
+                    <i class="bi bi-check-circle-fill"></i> Connected
+                </div>
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Version:</strong></td>
+                        <td>{{ redis_status.info.version }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Uptime:</strong></td>
+                        <td>{{ redis_status.info.uptime_days }} days</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Clients:</strong></td>
+                        <td>{{ redis_status.info.connected_clients }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Memory:</strong></td>
+                        <td>{{ redis_status.info.used_memory_human }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Keys:</strong></td>
+                        <td>{{ redis_status.info.total_keys }}</td>
+                    </tr>
+                </table>
+                {% else %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Not Connected
+                </div>
+                <p class="text-muted">Redis server is not available. The application is running without cache.</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5><i class="bi bi-info-circle"></i> System Info</h5>
+            </div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <tr>
+                        <td><strong>Log Lines:</strong></td>
+                        <td>{{ logs|length }}</td>
+                    </tr>
+                </table>
             </div>
         </div>
     </div>

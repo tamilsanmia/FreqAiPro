@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 EXCHANGE_ID = 'binance'
-TIMEFRAME = '5m'
+TIMEFRAMES = ['5m', '15m', '30m', '1h']
 LIMIT = 200
 COIN_LIMIT = 30
 SUPERTREND_FACTOR = 4
@@ -23,7 +23,35 @@ TP1_PERCENT = 0.01
 TP2_PERCENT = 0.02
 TP3_PERCENT = 0.03
 
+# Exclude stablecoin-heavy pairs (e.g., USDC/USDT, USD1/USDT)
+STABLECOIN_BLACKLIST = {
+    'USDC', 'USDT', 'BUSD', 'USDP', 'TUSD', 'USD1', 'USDD', 'USDE',
+    'DAI', 'FDUSD', 'FRAX', 'GUSD', 'LUSD', 'SUSD', 'USDC.E', 'USDX',
+    'PYUSD', 'XAUT', 'PAXG'
+}
+
 DB_FILE = 'signals.db'
+
+def get_tradingview_url(symbol, timeframe='1h'):
+    """Generate TradingView chart URL for a symbol with correct timeframe"""
+    # Convert symbol to TradingView format (e.g., BTC/USDT -> BINANCE:BTCUSDT)
+    coin_pair = symbol.replace('/', '').upper()
+    
+    # Map timeframe strings to TradingView intervals
+    timeframe_map = {
+        '1m': '1',
+        '5m': '5',
+        '15m': '15',
+        '30m': '30',
+        '1h': '60',
+        '4h': '240',
+        '1d': '1D',
+        '1w': '1W',
+        '1M': '1M'
+    }
+    
+    interval = timeframe_map.get(timeframe, '60')  # Default to 1h if not found
+    return f"https://www.tradingview.com/chart/?symbol=BINANCE:{coin_pair}&interval={interval}"
 
 def time_ago(ts_str):
     try:
@@ -60,7 +88,11 @@ def calculate_duration(start_ts_str, end_ts_str=None):
 
 def init_db():
     logger.info("Initializing database")
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    # Enable WAL mode for better concurrency
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=10000")
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS signals (
         id INTEGER PRIMARY KEY,
@@ -69,12 +101,26 @@ def init_db():
         price REAL,
         strength TEXT,
         st_level REAL,
+        timeframe TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS scanned_coins (
         id INTEGER PRIMARY KEY,
         coin TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS market_data (
+        id INTEGER PRIMARY KEY,
+        coin TEXT,
+        timeframe TEXT,
+        open REAL,
+        high REAL,
+        low REAL,
+        close REAL,
+        volume REAL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        candle_time INTEGER,
+        UNIQUE(coin, timeframe, candle_time)
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS positions (
         id INTEGER PRIMARY KEY,
@@ -96,12 +142,79 @@ def init_db():
         c.execute("ALTER TABLE positions ADD COLUMN order_number INTEGER")
     except sqlite3.OperationalError:
         pass  # Column already exists
+    # Add timeframe column to signals if not exists
+    try:
+        c.execute("ALTER TABLE signals ADD COLUMN timeframe TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    # Add timeframe column to positions if not exists
+    try:
+        c.execute("ALTER TABLE positions ADD COLUMN timeframe TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     conn.commit()
     conn.close()
     logger.info("Database initialized")
 
+def download_market_data(exchange, symbols, timeframes=None):
+    """Download and cache market data for quick access"""
+    if timeframes is None:
+        timeframes = TIMEFRAMES
+    
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    count = 0
+    
+    for symbol in symbols:
+        for timeframe in timeframes:
+            try:
+                ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=LIMIT)
+                for candle in ohlcv:
+                    candle_time = int(candle[0])
+                    c.execute("""
+                        INSERT OR REPLACE INTO market_data 
+                        (coin, timeframe, open, high, low, close, volume, candle_time)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (symbol, timeframe, candle[1], candle[2], candle[3], candle[4], candle[5], candle_time))
+                    count += 1
+                logger.debug(f"Cached {len(ohlcv)} candles for {symbol} on {timeframe}")
+            except Exception as e:
+                logger.error(f"Error downloading {symbol} {timeframe}: {e}")
+                continue
+    
+    conn.commit()
+    conn.close()
+    logger.info(f"Market data caching complete: {count} candles stored")
+
+def get_cached_ohlcv(coin, timeframe):
+    """Get cached OHLCV data from database"""
+    try:
+        conn = sqlite3.connect(DB_FILE, timeout=30)
+        c = conn.cursor()
+        c.execute("""
+            SELECT open, high, low, close, volume, candle_time 
+            FROM market_data 
+            WHERE coin = ? AND timeframe = ? 
+            ORDER BY candle_time ASC LIMIT ?
+        """, (coin, timeframe, LIMIT))
+        rows = c.fetchall()
+        conn.close()
+        
+        if not rows:
+            return None
+        
+        # Convert to OHLCV format for indicator calculation
+        ohlcv_data = []
+        for row in rows:
+            ohlcv_data.append([row[5], row[0], row[1], row[2], row[3], row[4]])  # time, open, high, low, close, volume
+        
+        return ohlcv_data
+    except Exception as e:
+        logger.error(f"Error retrieving cached OHLCV for {coin} {timeframe}: {e}")
+        return None
+
 def get_next_order_number():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
     c.execute("SELECT MAX(order_number) FROM positions")
     max_num = c.fetchone()[0]
@@ -109,27 +222,45 @@ def get_next_order_number():
     conn.close()
     return next_num
 
-def create_position(coin, entry_price, supertrend_level):
+def has_open_position(coin, timeframe="N/A"):
+    conn = sqlite3.connect(DB_FILE, timeout=30)
+    c = conn.cursor()
+    c.execute(
+        "SELECT 1 FROM positions WHERE coin = ? AND COALESCE(timeframe, 'N/A') = ? AND status = 'open' LIMIT 1",
+        (coin, timeframe)
+    )
+    exists = c.fetchone() is not None
+    conn.close()
+    return exists
+
+def create_position(coin, entry_price, supertrend_level, timeframe="N/A"):
+    if has_open_position(coin, timeframe):
+        logger.info(f"Open position already exists for {coin} on {timeframe}, skipping new entry.")
+        return False
     # Use Supertrend as dynamic stop loss instead of fixed percentage
     sl = supertrend_level  # Dynamic SL based on Supertrend
     tp1 = entry_price * (1 + TP1_PERCENT)
     tp2 = entry_price * (1 + TP2_PERCENT)
     tp3 = entry_price * (1 + TP3_PERCENT)
     order_number = get_next_order_number()
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
-    c.execute("INSERT INTO positions (order_number, coin, entry_price, sl, tp1, tp2, tp3, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')",
-              (order_number, coin, entry_price, sl, tp1, tp2, tp3))
+    c.execute("INSERT INTO positions (order_number, coin, entry_price, sl, tp1, tp2, tp3, status, timeframe) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+              (order_number, coin, entry_price, sl, tp1, tp2, tp3, timeframe))
     conn.commit()
     conn.close()
-    message = f"🚀 *Order Entry*\nOrder #: {order_number}\nCoin: {coin}\nEntry Price: {entry_price:.4f}\nSL (Supertrend): {sl:.4f}\nTP1: {tp1:.4f}\nTP2: {tp2:.4f}\nTP3: {tp3:.4f}\nTimestamp: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    message = f"🚀 *Order Entry*\nOrder #: {order_number}\nCoin: {coin}\nTimeframe: {timeframe}\nEntry Price: {entry_price:.4f}\nSL (Supertrend): {sl:.4f}\nTP1: {tp1:.4f}\nTP2: {tp2:.4f}\nTP3: {tp3:.4f}\nTimestamp: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}"
     send_telegram_message(message)
-    logger.info(f"Position created for {coin} at {entry_price}, SL at Supertrend {sl}, order #{order_number}")
+    logger.info(f"Position created for {coin} at {entry_price}, SL at Supertrend {sl}, order #{order_number}, timeframe: {timeframe}")
+    return True
 
-def check_and_close_positions(coin, current_price):
-    conn = sqlite3.connect(DB_FILE)
+def check_and_close_positions(coin, current_price, timeframe="N/A"):
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
-    c.execute("SELECT id, order_number, entry_price, sl, tp1, tp2, tp3 FROM positions WHERE coin = ? AND status = 'open'", (coin,))
+    c.execute(
+        "SELECT id, order_number, entry_price, sl, tp1, tp2, tp3 FROM positions WHERE coin = ? AND COALESCE(timeframe, 'N/A') = ? AND status = 'open'",
+        (coin, timeframe)
+    )
     positions = c.fetchall()
     for pos in positions:
         id_, order_number, entry_price, sl, tp1, tp2, tp3 = pos
@@ -157,10 +288,13 @@ def check_and_close_positions(coin, current_price):
     conn.commit()
     conn.close()
 
-def close_positions_on_sell(coin, exit_price):
-    conn = sqlite3.connect(DB_FILE)
+def close_positions_on_sell(coin, exit_price, timeframe="N/A"):
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
-    c.execute("SELECT id, order_number, entry_price FROM positions WHERE coin=? AND status='open'", (coin,))
+    c.execute(
+        "SELECT id, order_number, entry_price FROM positions WHERE coin=? AND COALESCE(timeframe, 'N/A') = ? AND status='open'",
+        (coin, timeframe)
+    )
     positions = c.fetchall()
     for pos in positions:
         id_, order_number, entry_price = pos
@@ -174,50 +308,85 @@ def close_positions_on_sell(coin, exit_price):
     conn.close()
 
 def get_open_positions():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
-    c.execute("SELECT order_number, coin, entry_price, sl, tp1, tp2, tp3, entry_timestamp FROM positions WHERE status='open' ORDER BY entry_timestamp DESC")
+    c.execute("SELECT order_number, coin, entry_price, sl, tp1, tp2, tp3, entry_timestamp, COALESCE(timeframe, 'N/A') FROM positions WHERE status='open' ORDER BY entry_timestamp DESC")
     rows = c.fetchall()
     conn.close()
+    
+    # Initialize exchange to fetch current prices
+    try:
+        exchange = getattr(ccxt, EXCHANGE_ID)()
+        exchange.load_markets()
+    except Exception as e:
+        logger.error(f"Error loading exchange: {e}")
+        exchange = None
+    
     positions = []
     for row in rows:
-        order_number, coin, entry_price, sl, tp1, tp2, tp3, ts = row
+        order_number, coin, entry_price, sl, tp1, tp2, tp3, ts, timeframe = row
         time_ago_str = time_ago(ts)
         duration = calculate_duration(ts)
+        
+        # Fetch current price and calculate profit
+        current_price = None
+        profit_pct = None
+        if exchange:
+            try:
+                ticker = exchange.fetch_ticker(coin)
+                current_price = ticker['last']
+                if current_price and entry_price:
+                    profit_pct = ((current_price - entry_price) / entry_price) * 100
+            except Exception as e:
+                logger.warning(f"Could not fetch current price for {coin}: {e}")
+        
         positions.append({
             'order_number': order_number,
             'coin': coin,
             'entry_price': entry_price,
+            'current_price': current_price,
+            'profit_pct': profit_pct,
             'sl': sl,
             'tp1': tp1,
             'tp2': tp2,
             'tp3': tp3,
             'time_ago': time_ago_str,
-            'duration': duration
+            'duration': duration,
+            'timeframe': timeframe,
+            'tradingview_url': get_tradingview_url(coin, timeframe)
         })
     return positions
 
 def get_order_history():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=30)
     c = conn.cursor()
-    c.execute("SELECT order_number, coin, entry_price, exit_price, exit_reason, entry_timestamp, exit_timestamp FROM positions WHERE status='closed' ORDER BY exit_timestamp DESC")
+    c.execute("SELECT COALESCE(order_number, id), coin, entry_price, COALESCE(exit_price, 0), COALESCE(exit_reason, 'N/A'), entry_timestamp, exit_timestamp, COALESCE(timeframe, 'N/A') FROM positions WHERE status='closed' ORDER BY exit_timestamp DESC")
     rows = c.fetchall()
     conn.close()
     history = []
     for row in rows:
-        order_number, coin, entry_price, exit_price, exit_reason, entry_ts, exit_ts = row
+        order_number, coin, entry_price, exit_price, exit_reason, entry_ts, exit_ts, timeframe = row
         time_ago_entry = time_ago(entry_ts)
         time_ago_exit = time_ago(exit_ts)
         duration = calculate_duration(entry_ts, exit_ts)
+        
+        # Calculate profit percentage
+        profit_pct = None
+        if exit_price and exit_price != 0 and entry_price and entry_price != 0:
+            profit_pct = ((exit_price - entry_price) / entry_price) * 100
+        
         history.append({
             'order_number': order_number,
             'coin': coin,
-            'entry_price': entry_price,
-            'exit_price': exit_price,
-            'exit_reason': exit_reason,
+            'entry_price': entry_price if entry_price else 0,
+            'exit_price': exit_price if exit_price and exit_price != 0 else None,
+            'profit_pct': profit_pct,
+            'exit_reason': exit_reason if exit_reason != 'N/A' else 'N/A',
             'time_ago_entry': time_ago_entry,
             'time_ago_exit': time_ago_exit,
-            'duration': duration
+            'duration': duration,
+            'timeframe': timeframe,
+            'tradingview_url': get_tradingview_url(coin, timeframe)
         })
     return history
 
@@ -227,6 +396,7 @@ def fetch_top_volume_symbols(exchange, limit=30):
         usdt_pairs = {
             s: d for s, d in tickers.items() 
             if s.endswith('/USDT') and 'UP/' not in s and 'DOWN/' not in s
+            and s.split('/')[0] not in STABLECOIN_BLACKLIST
         }
         sorted_pairs = sorted(
             usdt_pairs.items(), 

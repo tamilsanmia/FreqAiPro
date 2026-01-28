@@ -3,6 +3,7 @@
 {% block title %}Dashboard - Crypto Trading{% endblock %}
 
 {% block content %}
+
 <div class="row">
     <div class="col-md-6">
         <div class="card">
@@ -22,7 +23,7 @@
                     <tbody>
                         {% for signal in buy_signals %}
                         <tr>
-                            <td><i class="bi bi-currency-bitcoin"></i> {{ signal.coin }}</td>
+                            <td><a href="{{ signal.tradingview_url }}" target="_blank" class="text-decoration-none"><i class="bi bi-currency-bitcoin"></i> {{ signal.coin }} <span class="badge bg-info ms-2">{{ signal.timeframe }}</span></a></td>
                             <td class="text-success">{{ signal.price }}</td>
                             <td>{{ signal.strength }}</td>
                             <td>{{ signal.st_level }}</td>
@@ -52,7 +53,7 @@
                     <tbody>
                         {% for signal in sell_signals %}
                         <tr>
-                            <td><i class="bi bi-currency-bitcoin"></i> {{ signal.coin }}</td>
+                            <td><a href="{{ signal.tradingview_url }}" target="_blank" class="text-decoration-none"><i class="bi bi-currency-bitcoin"></i> {{ signal.coin }} <span class="badge bg-warning ms-2">{{ signal.timeframe }}</span></a></td>
                             <td class="text-danger">{{ signal.price }}</td>
                             <td>{{ signal.strength }}</td>
                             <td>{{ signal.st_level }}</td>
@@ -60,6 +61,24 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="row mt-3">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-search"></i> Scanned Coins</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap">
+                    {% for coin in scanned_coins %}
+                    <span class="badge bg-secondary me-2 mb-2">{{ coin }}</span>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>
@@ -79,6 +98,8 @@
                                 <th>Order #</th>
                                 <th>Coin</th>
                                 <th>Entry</th>
+                                <th>Current</th>
+                                <th>Profit %</th>
                                 <th>SL</th>
                                 <th>TP1</th>
                                 <th>TP2</th>
@@ -90,8 +111,10 @@
                             {% for pos in open_positions %}
                             <tr>
                                 <td>{{ pos.order_number }}</td>
-                                <td><i class="bi bi-currency-bitcoin"></i> {{ pos.coin }}</td>
+                                <td><a href="{{ pos.tradingview_url }}" target="_blank" class="text-decoration-none"><i class="bi bi-currency-bitcoin"></i> {{ pos.coin }} <span class="badge bg-primary ms-2">{{ pos.timeframe }}</span></a></td>
                                 <td class="text-info">{{ "%.4f"|format(pos.entry_price) }}</td>
+                                <td class="text-info">{{ "%.4f"|format(pos.current_price) if pos.current_price else "N/A" }}</td>
+                                <td class="{% if pos.profit_pct %}{% if pos.profit_pct > 0 %}text-success{% else %}text-danger{% endif %}{% endif %}">{{ "%.2f%%"|format(pos.profit_pct) if pos.profit_pct is not none else "N/A" }}</td>
                                 <td class="text-danger">{{ "%.4f"|format(pos.sl) }}</td>
                                 <td class="text-success">{{ "%.4f"|format(pos.tp1) }}</td>
                                 <td class="text-success">{{ "%.4f"|format(pos.tp2) }}</td>
@@ -122,6 +145,7 @@
                                 <th>Coin</th>
                                 <th>Entry</th>
                                 <th>Exit</th>
+                                <th>Profit %</th>
                                 <th>Reason</th>
                                 <th>Duration</th>
                             </tr>
@@ -130,10 +154,11 @@
                             {% for order in order_history %}
                             <tr>
                                 <td>{{ order.order_number }}</td>
-                                <td><i class="bi bi-currency-bitcoin"></i> {{ order.coin }}</td>
-                                <td>{{ "%.4f"|format(order.entry_price) }}</td>
-                                <td>{{ "%.4f"|format(order.exit_price) }}</td>
-                                <td class="{% if 'tp' in order.exit_reason %}text-success{% elif 'sl' in order.exit_reason %}text-danger{% else %}text-warning{% endif %}">{{ order.exit_reason }}</td>
+                                <td><a href="{{ order.tradingview_url }}" target="_blank" class="text-decoration-none"><i class="bi bi-currency-bitcoin"></i> {{ order.coin }} <span class="badge bg-secondary ms-2">{{ order.timeframe }}</span></a></td>
+                                <td>{{ "%.4f"|format(order.entry_price) if order.entry_price else "N/A" }}</td>
+                                <td>{{ "%.4f"|format(order.exit_price) if order.exit_price else "N/A" }}</td>
+                                <td class="{% if order.profit_pct %}{% if order.profit_pct > 0 %}text-success{% else %}text-danger{% endif %}{% endif %}">{{ "%.2f%%"|format(order.profit_pct) if order.profit_pct is not none else "N/A" }}</td>
+                                <td class="{% if order.exit_reason and 'tp' in order.exit_reason %}text-success{% elif order.exit_reason and 'sl' in order.exit_reason %}text-danger{% else %}text-warning{% endif %}">{{ order.exit_reason if order.exit_reason else "N/A" }}</td>
                                 <td>{{ order.duration }}</td>
                             </tr>
                             {% endfor %}
