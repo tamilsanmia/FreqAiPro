@@ -38,7 +38,7 @@ conn.execute("PRAGMA cache_size=10000")           # Better performance
 Run the concurrent access test:
 ```bash
 cd /root/FreqAiPro
-python3 test_concurrent_access.py
+python3 tests/test_concurrent_access.py
 ```
 
 Expected output:
@@ -51,8 +51,8 @@ Database locking issue appears to be resolved.
 
 | File | Purpose |
 |------|---------|
-| `DATABASE_LOCKING_FIX.md` | Detailed explanation & architecture |
-| `test_concurrent_access.py` | Validation test (5 threads, 10 ops each) |
+| `docs/DATABASE_LOCKING_FIX.md` | Detailed explanation & architecture |
+| `tests/test_concurrent_access.py` | Validation test (5 threads, 10 ops each) |
 | `strategy.py` | Fixed: 6 sqlite3.connect() calls |
 | `app.py` | Fixed: 6 sqlite3.connect() calls |
 

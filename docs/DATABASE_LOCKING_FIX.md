@@ -92,7 +92,7 @@ To verify the fix is working:
 
 1. **Check Application Logs:**
    ```bash
-   tail -f /root/FreqAiPro/app.log | grep -i "database is locked"
+  tail -f /root/FreqAiPro/logs/app.log | grep -i "database is locked"
    ```
    Should show no recent "database is locked" errors
 
@@ -104,7 +104,7 @@ To verify the fix is working:
 
 3. **Test Concurrent Load:**
    ```bash
-   python3 /root/FreqAiPro/test_concurrent_access.py
+  python3 /root/FreqAiPro/tests/test_concurrent_access.py
    ```
    Should complete with "Success rate: 5/5"
 

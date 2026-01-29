@@ -1,0 +1,116 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-dark-950 text-dark-100 font-sans;
+  font-family: 'Inter', sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-dark-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-dark-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-dark-500;
+}
+
+/* Utility classes */
+.card {
+  @apply bg-dark-900 border border-dark-800 rounded-lg p-4 transition-all duration-200;
+}
+
+.card:hover {
+  @apply border-dark-700 shadow-lg;
+}
+
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+.badge-success {
+  @apply bg-crypto-success/10 text-crypto-success;
+}
+
+.badge-danger {
+  @apply bg-crypto-danger/10 text-crypto-danger;
+}
+
+.badge-warning {
+  @apply bg-crypto-warning/10 text-crypto-warning;
+}
+
+.badge-info {
+  @apply bg-crypto-info/10 text-crypto-info;
+}
+
+.badge-primary {
+  @apply bg-crypto-primary/10 text-crypto-primary;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 cursor-pointer;
+}
+
+.btn-primary {
+  @apply bg-crypto-primary text-white hover:bg-blue-600;
+}
+
+.btn-secondary {
+  @apply bg-dark-800 text-dark-100 hover:bg-dark-700;
+}
+
+.btn-danger {
+  @apply bg-crypto-danger text-white hover:bg-red-600;
+}
+
+.btn-success {
+  @apply bg-crypto-success text-white hover:bg-green-600;
+}
+
+.btn:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+.table-row {
+  @apply border-b border-dark-800 hover:bg-dark-800/50 transition-colors;
+}
+
+.text-profit-positive {
+  @apply text-crypto-success;
+}
+
+.text-profit-negative {
+  @apply text-crypto-danger;
+}
+
+.text-muted {
+  @apply text-dark-400;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

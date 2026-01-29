@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask_cors import CORS
 import ccxt
 import pandas as pd
 import time
@@ -11,11 +12,20 @@ from strategy import EXCHANGE_ID, TIMEFRAMES, LIMIT, COIN_LIMIT, DB_FILE, init_d
 from telegram import send_telegram_message, test_telegram_connection
 from redis_client import redis_client, cache_signals, get_cached_signals, cache_scanned_coins, get_cached_scanned_coins, cache_positions, get_cached_positions
 
-logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+os.makedirs('logs', exist_ok=True)
+logging.basicConfig(filename='logs/app.log', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this'
+
+# Enable CORS for Next.js frontend
+CORS(app, supports_credentials=True, origins=[
+    'http://localhost:3000', 
+    'http://127.0.0.1:3000',
+    'http://localhost:3001', 
+    'http://127.0.0.1:3001'
+])
 
 # Initialize database
 init_db()
@@ -107,17 +117,30 @@ strategy_thread.start()
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
+        # Support both JSON and form data
+        if request.is_json:
+            data = request.get_json()
+            username = data.get('username')
+            password = data.get('password')
+            confirm_password = data.get('confirm_password', password)
+        else:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            confirm_password = request.form.get('confirm_password')
         
         if password != confirm_password:
+            if request.is_json:
+                return jsonify({'success': False, 'message': 'Passwords do not match'}), 400
             return render_template('register.html', error='Passwords do not match')
         
         if len(username) < 3:
+            if request.is_json:
+                return jsonify({'success': False, 'message': 'Username must be at least 3 characters'}), 400
             return render_template('register.html', error='Username must be at least 3 characters')
         
         if len(password) < 6:
+            if request.is_json:
+                return jsonify({'success': False, 'message': 'Password must be at least 6 characters'}), 400
             return render_template('register.html', error='Password must be at least 6 characters')
         
         try:
@@ -127,8 +150,13 @@ def register():
             conn.commit()
             conn.close()
             logger.info(f"New user registered: {username}")
+            
+            if request.is_json:
+                return jsonify({'success': True, 'message': 'Registration successful'}), 201
             return render_template('login.html', success='Registration successful! Please login.')
         except sqlite3.IntegrityError:
+            if request.is_json:
+                return jsonify({'success': False, 'message': 'Username already exists'}), 400
             return render_template('register.html', error='Username already exists')
     
     return render_template('register.html')
@@ -136,9 +164,16 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        remember = request.form.get('remember')
+        # Support both JSON and form data
+        if request.is_json:
+            data = request.get_json()
+            username = data.get('username')
+            password = data.get('password')
+            remember = data.get('remember')
+        else:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            remember = request.form.get('remember')
         
         conn = sqlite3.connect('users.db', timeout=30)
         c = conn.cursor()
@@ -151,9 +186,17 @@ def login():
             if remember:
                 session.permanent = True
             logger.info(f"User {username} logged in")
+            
+            # Return JSON for API requests
+            if request.is_json:
+                return jsonify({'success': True, 'message': 'Login successful'}), 200
             return redirect(url_for('index'))
         else:
             logger.warning(f"Failed login attempt for user {username}")
+            
+            # Return JSON for API requests
+            if request.is_json:
+                return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
             return render_template('login.html', error='Invalid username or password')
     
     return render_template('login.html')
@@ -214,6 +257,16 @@ def index():
     for order in order_history:
         timeframe = order.get('timeframe', '1h')
         order['tradingview_url'] = get_tradingview_url(order['coin'], timeframe)
+    
+    # Return JSON for API requests
+    if request.headers.get('Accept') == 'application/json' or request.is_json or 'application/json' in request.headers.get('Accept', ''):
+        return jsonify({
+            'buy_signals': buy_signals,
+            'sell_signals': sell_signals,
+            'scanned_coins': symbols,
+            'open_positions': open_positions,
+            'order_history': order_history
+        })
     
     return render_template('dashboard.html', 
                            buy_signals=buy_signals, 

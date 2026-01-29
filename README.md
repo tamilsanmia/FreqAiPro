@@ -1,6 +1,6 @@
 # FreqAiPro - Crypto Trading Dashboard
 
-A Flask-based cryptocurrency trading dashboard with strategy analysis and signal generation.
+A full-stack cryptocurrency trading dashboard with a Flask backend and a Next.js frontend.
 
 ## Setup Instructions
 
@@ -68,17 +68,36 @@ See `requirements.txt` for all dependencies including:
 
 ```
 FreqAiPro/
-├── app.py              # Main Flask application
-├── strategy.py         # Trading strategy logic
-├── telegram.py         # Telegram integration
-├── redis_client.py     # Redis caching configuration
-├── requirements.txt    # Python dependencies
-├── users.db           # User database
-├── signals.db         # Signals database
-└── templates/         # HTML templates
-    ├── base.html
-    ├── dashboard.html
-    ├── login.html
-    ├── logs.html
-    └── profile.html
+├── app.py                 # Main Flask application
+├── strategy.py            # Trading strategy logic
+├── telegram.py            # Telegram integration
+├── redis_client.py        # Redis caching configuration
+├── requirements.txt       # Python dependencies
+├── users.db               # User database
+├── signals.db             # Signals database
+├── logs/                  # Runtime logs
+│   ├── app.log
+│   └── flask.log
+├── docs/                  # Documentation
+│   ├── README_NEXTJS.md
+│   ├── MIGRATION_SUMMARY.md
+│   └── DATABASE_LOCKING_FIX.md
+├── tests/                 # Test scripts
+│   ├── test_app.py
+│   ├── test_concurrent_access.py
+│   └── test_template.py
+├── templates/             # Legacy HTML templates
+│   ├── base.html
+│   ├── dashboard.html
+│   ├── login.html
+│   ├── logs.html
+│   └── profile.html
+└── frontend/              # Next.js frontend
+    ├── package.json
+    ├── next.config.js
+    ├── tailwind.config.ts
+    ├── tsconfig.json
+    └── src/
+        ├── app/
+        └── components/
 ```

@@ -1,0 +1,27 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY frontend/package.json frontend/package-lock.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy application code
+COPY frontend/src ./src
+COPY frontend/public ./public
+COPY frontend/next.config.js .
+COPY frontend/tsconfig.json .
+COPY frontend/tailwind.config.ts .
+COPY frontend/postcss.config.js .
+COPY frontend/.eslintrc.json .
+
+# Create .env.local
+RUN echo "NEXT_PUBLIC_API_URL=http://backend:5000" > .env.local
+
+# Expose port
+EXPOSE 3000
+
+# Run Next.js
+CMD ["npm", "run", "dev"]

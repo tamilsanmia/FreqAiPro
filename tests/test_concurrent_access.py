@@ -9,7 +9,7 @@ import random
 import logging
 
 logging.basicConfig(
-    filename='test_concurrent.log',
+    filename='logs/test_concurrent.log',
     level=logging.DEBUG,
     format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s'
 )
@@ -123,7 +123,7 @@ def run_concurrent_test():
 
 if __name__ == '__main__':
     print("\nRunning concurrent database access test...")
-    print(f"Check test_concurrent.log for detailed results")
+    print("Check logs/test_concurrent.log for detailed results")
     
     success = run_concurrent_test()
     
